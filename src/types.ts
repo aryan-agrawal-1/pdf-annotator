@@ -18,7 +18,19 @@ export type StoredDocument = {
   title: string;
   fileName: string;
   pdfData: ArrayBuffer;
+  contentFingerprint?: string;
   highlights: Highlight[];
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type StoredDocumentSummary = {
+  id: string;
+  title: string;
+  fileName: string;
+  contentFingerprint?: string;
+  pdfByteLength: number;
+  highlightCount: number;
   createdAt: string;
   updatedAt: string;
 };

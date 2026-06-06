@@ -1,4 +1,4 @@
-import type { Highlight, StoredDocument } from "./types";
+import type { Highlight, StoredDocument, StoredDocumentSummary } from "./types";
 
 const DB_NAME = "pdf-annotation";
 const DB_VERSION = 1;
@@ -76,6 +76,39 @@ export async function getLastDocument() {
   }
 
   return getDocument(meta.value);
+}
+
+export async function listDocuments() {
+  const db = await openDb();
+  const request = db.transaction(DOC_STORE, "readonly").objectStore(DOC_STORE).openCursor();
+  const documents: StoredDocumentSummary[] = [];
+
+  await new Promise<void>((resolve, reject) => {
+    request.onerror = () => reject(request.error);
+    request.onsuccess = () => {
+      const cursor = request.result;
+
+      if (!cursor) {
+        resolve();
+        return;
+      }
+
+      const document = cursor.value as StoredDocument;
+      documents.push({
+        id: document.id,
+        title: document.title,
+        fileName: document.fileName,
+        contentFingerprint: document.contentFingerprint,
+        pdfByteLength: document.pdfData.byteLength,
+        highlightCount: document.highlights.length,
+        createdAt: document.createdAt,
+        updatedAt: document.updatedAt,
+      });
+      cursor.continue();
+    };
+  });
+
+  return documents.sort((a, b) => Date.parse(b.updatedAt) - Date.parse(a.updatedAt));
 }
 
 export async function updateHighlights(documentId: string, highlights: Highlight[]) {

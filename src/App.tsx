@@ -1,10 +1,10 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import * as pdfjs from "pdfjs-dist";
 import workerUrl from "pdfjs-dist/build/pdf.worker.mjs?url";
-import { FileText, PanelLeft, Trash2, Upload, ZoomIn, ZoomOut } from "lucide-react";
+import { FileText, Plus, Trash2, X, ZoomIn, ZoomOut } from "lucide-react";
 import { renderTextLayer } from "./pdfTextLayer";
-import { getLastDocument, saveDocument, updateHighlights } from "./storage";
-import type { Highlight, HighlightRect, StoredDocument } from "./types";
+import { getDocument, getLastDocument, listDocuments, saveDocument, updateHighlights } from "./storage";
+import type { Highlight, HighlightRect, StoredDocument, StoredDocumentSummary } from "./types";
 
 pdfjs.GlobalWorkerOptions.workerSrc = workerUrl;
 
@@ -144,6 +144,77 @@ function removeLegacyAreaHighlights(document: StoredDocument) {
     ...document,
     highlights: document.highlights.filter((highlight) => highlight.text !== "Area highlight"),
   };
+}
+
+function summarizeStoredDocument(document: StoredDocument): StoredDocumentSummary {
+  return {
+    id: document.id,
+    title: document.title,
+    fileName: document.fileName,
+    contentFingerprint: document.contentFingerprint,
+    pdfByteLength: document.pdfData.byteLength,
+    highlightCount: document.highlights.length,
+    createdAt: document.createdAt,
+    updatedAt: document.updatedAt,
+  };
+}
+
+function upsertDocumentTab(
+  tabs: StoredDocumentSummary[],
+  nextTab: StoredDocumentSummary,
+) {
+  const existingIndex = tabs.findIndex((tab) => tab.id === nextTab.id);
+
+  if (existingIndex === -1) {
+    return [...tabs, nextTab];
+  }
+
+  return tabs.map((tab, index) => (index === existingIndex ? nextTab : tab));
+}
+
+function formatRelativeDate(value: string) {
+  const timestamp = Date.parse(value);
+
+  if (Number.isNaN(timestamp)) {
+    return "Saved";
+  }
+
+  const deltaMs = Date.now() - timestamp;
+  const deltaMinutes = Math.floor(deltaMs / 60000);
+
+  if (deltaMinutes < 1) {
+    return "Just now";
+  }
+
+  if (deltaMinutes < 60) {
+    return `${deltaMinutes}m ago`;
+  }
+
+  const deltaHours = Math.floor(deltaMinutes / 60);
+
+  if (deltaHours < 24) {
+    return `${deltaHours}h ago`;
+  }
+
+  const deltaDays = Math.floor(deltaHours / 24);
+
+  if (deltaDays < 7) {
+    return `${deltaDays}d ago`;
+  }
+
+  return new Intl.DateTimeFormat(undefined, {
+    month: "short",
+    day: "numeric",
+  }).format(new Date(timestamp));
+}
+
+async function createContentFingerprint(pdfData: ArrayBuffer) {
+  if (!crypto.subtle) {
+    return undefined;
+  }
+
+  const digest = await crypto.subtle.digest("SHA-256", pdfData.slice(0));
+  return Array.from(new Uint8Array(digest), (byte) => byte.toString(16).padStart(2, "0")).join("");
 }
 
 function getRuntimeDiagnostics(): RuntimeDiagnostics {
@@ -331,10 +402,19 @@ function App() {
   const [isWordCursorActive, setIsWordCursorActive] = useState(false);
   const [isLoadingPdf, setIsLoadingPdf] = useState(false);
   const [status, setStatus] = useState("Open a PDF");
+  const [openTabs, setOpenTabs] = useState<StoredDocumentSummary[]>([]);
   const [selectableWordCount, setSelectableWordCount] = useState(0);
   const [runtimeDiagnostics] = useState(() => getRuntimeDiagnostics());
   const [pageDiagnostics, setPageDiagnostics] = useState<Record<number, PageDiagnostics>>({});
   const [debugGeometry, setDebugGeometry] = useState("");
+
+  const refreshRecentDocuments = useCallback(async () => {
+    const savedDocuments = await listDocuments();
+    setOpenTabs((currentTabs) =>
+      currentTabs.map((tab) => savedDocuments.find((savedDocument) => savedDocument.id === tab.id) ?? tab),
+    );
+    return savedDocuments;
+  }, []);
 
   useEffect(() => {
     const debugPdf = new URLSearchParams(window.location.search).get("debugPdf");
@@ -399,6 +479,7 @@ function App() {
         if (!cancelled && lastDocument) {
           const cleanedDocument = removeLegacyAreaHighlights(lastDocument);
           setDocument(cleanedDocument);
+          setOpenTabs([summarizeStoredDocument(cleanedDocument)]);
 
           if (cleanedDocument.highlights.length !== lastDocument.highlights.length) {
             void saveDocument(cleanedDocument);
@@ -411,10 +492,16 @@ function App() {
         }
       });
 
+    refreshRecentDocuments().catch(() => {
+      if (!cancelled) {
+        setStatus("Local storage unavailable");
+      }
+    });
+
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [refreshRecentDocuments]);
 
   useEffect(() => {
     if (!document) {
@@ -627,12 +714,42 @@ function App() {
     }
 
     const pdfData = await file.arrayBuffer();
+    const contentFingerprint = await createContentFingerprint(pdfData);
+    const savedDocuments = await listDocuments();
+
+    const matchingDocument = savedDocuments.find((recentDocument) => {
+      if (contentFingerprint && recentDocument.contentFingerprint === contentFingerprint) {
+        return true;
+      }
+
+      return recentDocument.fileName === file.name && recentDocument.pdfByteLength === pdfData.byteLength;
+    });
+
+    if (matchingDocument) {
+      const existingDocument = await getDocument(matchingDocument.id);
+
+      if (existingDocument) {
+        const nextDocument = removeLegacyAreaHighlights({
+          ...existingDocument,
+          contentFingerprint: existingDocument.contentFingerprint ?? contentFingerprint,
+        });
+
+        await saveDocument(nextDocument);
+        setDocument(nextDocument);
+        setOpenTabs((currentTabs) => upsertDocumentTab(currentTabs, summarizeStoredDocument(nextDocument)));
+        setActiveHighlightId(null);
+        await refreshRecentDocuments();
+        return;
+      }
+    }
+
     const now = new Date().toISOString();
     const nextDocument: StoredDocument = {
       id: createId("doc"),
       title: file.name.replace(/\.pdf$/i, ""),
       fileName: file.name,
       pdfData,
+      contentFingerprint,
       highlights: [],
       createdAt: now,
       updatedAt: now,
@@ -640,8 +757,62 @@ function App() {
 
     await saveDocument(nextDocument);
     setDocument(nextDocument);
+    setOpenTabs((currentTabs) => upsertDocumentTab(currentTabs, summarizeStoredDocument(nextDocument)));
     setActiveHighlightId(null);
-  }, []);
+    await refreshRecentDocuments();
+  }, [refreshRecentDocuments]);
+
+  const openDocumentTab = useCallback(
+    async (documentId: string, options: { addToTabs?: boolean } = {}) => {
+      const { addToTabs = true } = options;
+      const savedDocument = await getDocument(documentId);
+
+      if (!savedDocument) {
+        await refreshRecentDocuments();
+        return;
+      }
+
+      const cleanedDocument = removeLegacyAreaHighlights(savedDocument);
+      await saveDocument(cleanedDocument);
+      if (addToTabs) {
+        setOpenTabs((currentTabs) => upsertDocumentTab(currentTabs, summarizeStoredDocument(cleanedDocument)));
+      }
+      await refreshRecentDocuments();
+      setDocument(cleanedDocument);
+      setActiveHighlightId(null);
+    },
+    [refreshRecentDocuments],
+  );
+
+  const closeDocumentTab = useCallback(
+    (documentId: string) => {
+      const closingIndex = openTabs.findIndex((tab) => tab.id === documentId);
+
+      if (closingIndex === -1) {
+        return;
+      }
+
+      const nextTabs = openTabs.filter((tab) => tab.id !== documentId);
+      setOpenTabs(nextTabs);
+
+      if (document?.id !== documentId) {
+        return;
+      }
+
+      const nextActiveTab = nextTabs[Math.min(closingIndex, nextTabs.length - 1)];
+
+      if (nextActiveTab) {
+        void openDocumentTab(nextActiveTab.id, { addToTabs: false });
+        return;
+      }
+
+      setDocument(null);
+      setLoadedPdf(null);
+      setActiveHighlightId(null);
+      setStatus("Open a PDF");
+    },
+    [document?.id, openDocumentTab, openTabs],
+  );
 
   const persistHighlights = useCallback(
     async (nextHighlights: Highlight[]) => {
@@ -656,9 +827,11 @@ function App() {
       };
 
       setDocument(nextDocument);
+      setOpenTabs((currentTabs) => upsertDocumentTab(currentTabs, summarizeStoredDocument(nextDocument)));
       await updateHighlights(document.id, nextHighlights);
+      await refreshRecentDocuments();
     },
-    [document],
+    [document, refreshRecentDocuments],
   );
 
   const commitHighlight = useCallback(
@@ -927,37 +1100,21 @@ function App() {
 
   return (
     <main className="app-shell">
+      <input
+        ref={fileInputRef}
+        className="file-input"
+        type="file"
+        accept="application/pdf,.pdf"
+        onChange={handleFileSelected}
+      />
+
       <aside className="sidebar">
-        <div className="sidebar__top">
-          <div className="brand">
-            <FileText aria-hidden="true" />
-            <div>
-              <h1>PDF Annotation</h1>
-              <span>{document?.fileName ?? status}</span>
-            </div>
-          </div>
-
-          <button className="primary-button" type="button" onClick={openFilePicker}>
-            <Upload aria-hidden="true" />
-            Open PDF
-          </button>
-
-          <input
-            ref={fileInputRef}
-            className="file-input"
-            type="file"
-            accept="application/pdf,.pdf"
-            onChange={handleFileSelected}
-          />
-        </div>
-
         <section className="highlight-panel" aria-label="Saved highlights">
           <div className="panel-heading">
             <div>
               <span className="eyebrow">Highlights</span>
               <strong>{sortedHighlights.length}</strong>
             </div>
-            <PanelLeft aria-hidden="true" />
           </div>
 
           <div className="highlight-list">
@@ -1003,15 +1160,53 @@ function App() {
 
       <section className="workspace">
         <header className="toolbar">
-          <div className="document-title">
-            <span>{document?.title ?? "No PDF open"}</span>
-            <small>
-              {isLoadingPdf
-                ? "Loading"
-                : document && loadedPdf
-                  ? `${status} · ${selectableWordCount.toLocaleString()} selectable characters`
-                  : status}
-            </small>
+          <div className="tab-bar" role="tablist" aria-label="Open PDFs">
+            <div className="tab-strip">
+              {openTabs.length === 0 ? (
+                <span className="pdf-tab pdf-tab--placeholder">No PDF open</span>
+              ) : (
+                openTabs.map((openTab) => (
+                  <div
+                    className={`pdf-tab ${document?.id === openTab.id ? "is-active" : ""}`}
+                    role="tab"
+                    tabIndex={0}
+                    aria-selected={document?.id === openTab.id}
+                    key={openTab.id}
+                    onClick={() => void openDocumentTab(openTab.id)}
+                    onKeyDown={(event) => {
+                      if (event.key === "Enter" || event.key === " ") {
+                        event.preventDefault();
+                        void openDocumentTab(openTab.id);
+                      }
+                    }}
+                  >
+                    <span className="pdf-tab__title">{openTab.title}</span>
+                    <span className="pdf-tab__meta">
+                      {openTab.highlightCount} {openTab.highlightCount === 1 ? "highlight" : "highlights"} |{" "}
+                      {formatRelativeDate(openTab.updatedAt)}
+                    </span>
+                    <button
+                      className="tab-close"
+                      type="button"
+                      aria-label={`Close ${openTab.title}`}
+                      onClick={(event) => {
+                        event.stopPropagation();
+                        closeDocumentTab(openTab.id);
+                      }}
+                      onKeyDown={(event) => {
+                        event.stopPropagation();
+                      }}
+                    >
+                      <X aria-hidden="true" />
+                    </button>
+                  </div>
+                ))
+              )}
+
+              <button className="tab-add" type="button" onClick={openFilePicker} aria-label="Open PDF">
+                <Plus aria-hidden="true" />
+              </button>
+            </div>
           </div>
 
           <div className="toolbar-actions" aria-label="View controls">

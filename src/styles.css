@@ -53,79 +53,10 @@ button {
   background: #fbfcfd;
 }
 
-.sidebar__top {
-  display: grid;
-  gap: 18px;
-  padding: 22px 20px 18px;
-  border-bottom: 1px solid #e3e7ea;
-}
-
-.brand {
-  display: grid;
-  grid-template-columns: 36px minmax(0, 1fr);
-  gap: 12px;
-  align-items: center;
-}
-
-.brand > svg {
-  width: 36px;
-  height: 36px;
-  padding: 8px;
-  border: 1px solid #cfd7dd;
-  border-radius: 8px;
-  color: #29586b;
-  background: #fff;
-}
-
-.brand h1 {
-  margin: 0;
-  color: #1f252a;
-  font-size: 17px;
-  font-weight: 600;
-  letter-spacing: 0;
-}
-
-.brand span {
-  display: block;
-  max-width: 100%;
-  margin-top: 3px;
-  overflow: hidden;
-  color: #6d767e;
-  font-size: 12px;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.primary-button {
-  display: inline-flex;
-  width: 100%;
-  min-height: 42px;
-  align-items: center;
-  justify-content: center;
-  gap: 9px;
-  border: 1px solid #29586b;
-  border-radius: 7px;
-  color: #fff;
-  background: #29586b;
-  font-weight: 500;
-  transition:
-    background 140ms ease,
-    transform 140ms ease,
-    border-color 140ms ease;
-}
-
-.primary-button:hover {
-  background: #214c5e;
-  border-color: #214c5e;
-}
-
-.primary-button:active {
-  transform: translateY(1px);
-}
-
-.primary-button svg,
 .icon-button svg,
-.highlight-item svg {
+.highlight-item svg,
+.tab-add svg,
+.tab-close svg {
   width: 17px;
   height: 17px;
 }
@@ -166,12 +97,6 @@ button {
   font-size: 26px;
   font-weight: 500;
   line-height: 1;
-}
-
-.panel-heading svg {
-  width: 18px;
-  height: 18px;
-  color: #839099;
 }
 
 .highlight-list {
@@ -359,7 +284,7 @@ button {
 
 .toolbar {
   display: flex;
-  align-items: center;
+  align-items: end;
   justify-content: space-between;
   gap: 18px;
   padding: 0 22px;
@@ -368,35 +293,155 @@ button {
   backdrop-filter: blur(10px);
 }
 
-.document-title {
+.tab-bar {
+  display: flex;
   min-width: 0;
+  height: 100%;
+  flex: 1;
+  align-items: end;
 }
 
-.document-title span,
-.document-title small {
+.tab-strip {
+  display: flex;
+  min-width: 0;
+  align-items: end;
+  gap: 2px;
+  overflow-x: auto;
+  scrollbar-width: thin;
+}
+
+.pdf-tab {
+  display: grid;
+  position: relative;
+  flex: 0 0 208px;
+  min-width: 0;
+  max-width: 232px;
+  height: 40px;
+  grid-template-columns: minmax(0, 1fr) 24px;
+  grid-template-rows: minmax(0, 1fr) auto;
+  column-gap: 7px;
+  align-items: center;
+  padding: 7px 7px 7px 13px;
+  border: 1px solid #cfd7dd;
+  border-bottom: 0;
+  border-radius: 9px 9px 0 0;
+  color: #354047;
+  background: #e4e9ed;
+  box-shadow: inset 0 -1px 0 rgba(121, 134, 144, 0.12);
+  text-align: left;
+  cursor: default;
+  transition:
+    border-color 140ms ease,
+    background 140ms ease,
+    box-shadow 140ms ease,
+    color 140ms ease;
+}
+
+.pdf-tab:hover {
+  border-color: #bdc8d0;
+  background: #edf1f3;
+}
+
+.pdf-tab.is-active {
+  height: 45px;
+  border-color: #cbd4da;
+  color: #1f252a;
+  background: #fbfcfd;
+  box-shadow:
+    0 -1px 0 #fbfcfd,
+    0 1px 0 #fbfcfd;
+  z-index: 1;
+}
+
+.pdf-tab--placeholder {
+  align-content: center;
+  flex-basis: 170px;
+  grid-template-columns: minmax(0, 1fr);
+  height: 38px;
+  padding-right: 13px;
+  color: #6d767e;
+  font-size: 13px;
+}
+
+.pdf-tab__title,
+.pdf-tab__meta {
   display: block;
-  max-width: 58vw;
+  min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-.document-title span {
-  color: #1f252a;
-  font-size: 15px;
+.pdf-tab__title {
+  grid-column: 1 / 2;
+  grid-row: 1 / 2;
+  font-size: 13px;
   font-weight: 600;
 }
 
-.document-title small {
-  margin-top: 3px;
+.pdf-tab__meta {
+  grid-column: 1 / 2;
+  grid-row: 2 / 3;
   color: #6d767e;
-  font-size: 12px;
+  font-size: 11px;
+}
+
+.tab-add {
+  display: inline-flex;
+  flex: 0 0 auto;
+  width: 32px;
+  height: 32px;
+  align-items: center;
+  justify-content: center;
+  margin: 0 0 6px 4px;
+  border: 1px solid #cfd7dd;
+  border-radius: 9px;
+  color: #46525b;
+  background: #e4e9ed;
+  transition:
+    border-color 140ms ease,
+    background 140ms ease,
+    color 140ms ease;
+}
+
+.tab-add:hover {
+  border-color: #aebbc3;
+  color: #29586b;
+  background: #f7f9fa;
+}
+
+.tab-close {
+  display: inline-flex;
+  grid-column: 2 / 3;
+  grid-row: 1 / 3;
+  width: 22px;
+  height: 22px;
+  align-items: center;
+  justify-content: center;
+  justify-self: end;
+  border: 0;
+  border-radius: 50%;
+  color: #6d767e;
+  background: transparent;
+  opacity: 0.72;
+  transition:
+    background 140ms ease,
+    color 140ms ease,
+    opacity 140ms ease;
+}
+
+.tab-close:hover,
+.tab-close:focus-visible {
+  color: #2f3a42;
+  background: rgba(45, 58, 68, 0.1);
+  opacity: 1;
 }
 
 .toolbar-actions {
   display: inline-flex;
   align-items: center;
   gap: 8px;
+  margin-bottom: 14px;
 }
 
 .zoom-value {
